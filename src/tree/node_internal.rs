@@ -1047,3 +1047,219 @@ fn pretty_print_inode<const N: usize, L: Leaf>(
 
     Ok(())
 }
+
+use inner_children::{Children, Drain};
+
+mod inner_children {
+    use std::mem::{self, MaybeUninit};
+    use std::ops::Range;
+    use std::ptr;
+
+    use super::*;
+
+    pub(super) struct Children<const N: usize, L: Leaf> {
+        children: [MaybeUninit<Arc<Node<N, L>>>; N],
+        len: u8,
+    }
+
+    impl<const N: usize, L: Leaf> std::fmt::Debug for Children<N, L> {
+        #[inline]
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.debug_list().entries(self.as_slice()).finish()
+        }
+    }
+
+    impl<const N: usize, L: Leaf> Children<N, L> {
+        #[inline(always)]
+        pub(super) fn append(&mut self, other: &mut Self) {
+            debug_assert!(self.len() + other.len() <= N);
+
+            unsafe {
+                ptr::copy(
+                    other.children.as_ptr(),
+                    self.children.as_mut_ptr().add(self.len()),
+                    other.len(),
+                );
+            }
+
+            other.len = 0;
+        }
+
+        #[inline(always)]
+        pub(super) fn as_slice(&self) -> &[Arc<Node<N, L>>] {
+            unsafe { mem::transmute(&self.children[..self.len()]) }
+        }
+
+        #[inline(always)]
+        pub(super) fn as_slice_mut(&mut self) -> &mut [Arc<Node<N, L>>] {
+            unsafe { mem::transmute(&mut self.children[..self.len as _]) }
+        }
+
+        #[inline(always)]
+        pub(super) fn drain(
+            &mut self,
+            idx_range: Range<usize>,
+        ) -> Drain<'_, N, L> {
+            Drain {
+                children: self,
+                start: idx_range.start,
+                yielded: 0,
+                end: idx_range.end,
+            }
+        }
+
+        #[inline(always)]
+        pub(super) fn insert(
+            &mut self,
+            offset: usize,
+            child: Arc<Node<N, L>>,
+        ) {
+            debug_assert!(offset <= self.len());
+            debug_assert!(self.len() < N);
+
+            unsafe {
+                let ptr = self.children.as_mut_ptr();
+
+                ptr::copy(
+                    ptr.add(offset),
+                    ptr.add(offset + 1),
+                    self.len() - offset,
+                );
+            };
+
+            self.children[offset].write(child);
+
+            self.len += 1;
+        }
+
+        #[inline(always)]
+        pub(super) fn len(&self) -> usize {
+            self.len as _
+        }
+
+        #[inline(always)]
+        pub(super) fn empty() -> Self {
+            Self {
+                // SAFETY: An uninitialized `[MaybeUninit<_>; LEN]` is valid.
+                children: unsafe { MaybeUninit::uninit().assume_init() },
+                len: 0,
+            }
+        }
+
+        #[inline(always)]
+        pub(super) fn push(&mut self, child: Arc<Node<N, L>>) {
+            debug_assert!(self.len() < N);
+            self.children[self.len()].write(child);
+            self.len += 1;
+        }
+
+        #[inline(always)]
+        pub(super) fn remove(&mut self, idx: usize) -> Arc<Node<N, L>> {
+            debug_assert!(idx < self.len());
+
+            let child =
+                unsafe { ptr::read(&self.children[idx]).assume_init() };
+
+            unsafe {
+                let ptr = self.children.as_mut_ptr();
+
+                ptr::copy(
+                    ptr.add(idx + 1),
+                    ptr.add(idx),
+                    self.len() - idx - 1,
+                );
+            }
+
+            self.len -= 1;
+
+            child
+        }
+    }
+
+    impl<const N: usize, L: Leaf> Drop for Children<N, L> {
+        #[inline(always)]
+        fn drop(&mut self) {
+            for child in &mut self.children[..self.len as usize] {
+                unsafe { ptr::drop_in_place(child.as_mut_ptr()) };
+            }
+        }
+    }
+
+    impl<const N: usize, L: Leaf> Clone for Children<N, L> {
+        #[inline(always)]
+        fn clone(&self) -> Self {
+            let mut cloned = Self::empty();
+
+            for (new, this) in
+                cloned.children[..self.len()].iter_mut().zip(self.as_slice())
+            {
+                new.write(Arc::clone(this));
+            }
+
+            cloned.len = self.len;
+
+            cloned
+        }
+    }
+
+    pub(in crate::tree) struct Drain<'a, const N: usize, L: Leaf> {
+        children: &'a mut Children<N, L>,
+        start: usize,
+        yielded: usize,
+        end: usize,
+    }
+
+    impl<'a, const N: usize, L: Leaf> Iterator for Drain<'a, N, L> {
+        type Item = Arc<Node<N, L>>;
+
+        #[inline(always)]
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.start + self.yielded == self.end {
+                return None;
+            }
+
+            let child = unsafe {
+                ptr::read(&self.children.children[self.start + self.yielded])
+                    .assume_init()
+            };
+
+            self.yielded += 1;
+
+            Some(child)
+        }
+    }
+
+    impl<'a, const N: usize, L: Leaf> ExactSizeIterator for Drain<'a, N, L> {
+        #[inline(always)]
+        fn len(&self) -> usize {
+            (self.end - self.start) - self.yielded
+        }
+    }
+
+    impl<'a, const N: usize, L: Leaf> Drop for Drain<'a, N, L> {
+        #[inline(always)]
+        fn drop(&mut self) {
+            // Drop the children that haven't been yielded.
+            for child in &mut self.children.children
+                [self.start + self.yielded..self.end]
+            {
+                unsafe { ptr::drop_in_place(child.as_mut_ptr()) };
+            }
+
+            // Close any gap left by yielding the range.
+            if self.end < self.children.len() {
+                unsafe {
+                    let ptr = self.children.children.as_mut_ptr();
+
+                    ptr::copy(
+                        ptr.add(self.end),
+                        ptr.add(self.start),
+                        self.children.len() - self.end,
+                    );
+                }
+            }
+
+            self.children.len -= (self.end - self.start) as u8;
+        }
+    }
+}
