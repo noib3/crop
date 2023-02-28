@@ -6,7 +6,7 @@ use crate::range_bounds_to_start_end;
 
 #[derive(Clone)]
 pub(super) struct Inode<const N: usize, L: Leaf> {
-    children: Vec<Arc<Node<N, L>>>,
+    children: Children<N, L>,
     summary: L::Summary,
     depth: usize,
     leaf_count: usize,
@@ -433,12 +433,17 @@ impl<const N: usize, L: Leaf> Inode<N, L> {
 
     #[inline]
     pub(super) fn child(&self, child_idx: usize) -> &Arc<Node<N, L>> {
-        &self.children[child_idx]
+        &self.children()[child_idx]
     }
 
     #[inline]
     pub(super) fn children(&self) -> &[Arc<Node<N, L>>] {
-        &self.children
+        self.children.as_slice()
+    }
+
+    #[inline]
+    fn children_mut(&mut self) -> &mut [Arc<Node<N, L>>] {
+        self.children.as_slice_mut()
     }
 
     #[inline]
@@ -449,10 +454,7 @@ impl<const N: usize, L: Leaf> Inode<N, L> {
     /// Removes all the nodes after `child_offset`, returning them and leaving
     /// the inode with `child_offset` children.
     #[inline]
-    pub(super) fn drain<R>(
-        &mut self,
-        idx_range: R,
-    ) -> alloc::vec::Drain<'_, Arc<Node<N, L>>>
+    pub(super) fn drain<R>(&mut self, idx_range: R) -> Drain<'_, N, L>
     where
         R: RangeBounds<usize>,
     {
@@ -461,7 +463,7 @@ impl<const N: usize, L: Leaf> Inode<N, L> {
         debug_assert!(start <= end);
         debug_assert!(end <= self.len());
 
-        for child in &self.children[start..end] {
+        for child in &self.children.as_slice()[start..end] {
             self.summary -= child.summary();
             self.leaf_count -= child.leaf_count();
         }
@@ -472,7 +474,7 @@ impl<const N: usize, L: Leaf> Inode<N, L> {
     #[inline]
     pub(super) fn empty() -> Self {
         Self {
-            children: Vec::with_capacity(N),
+            children: Children::empty(),
             depth: 1,
             leaf_count: 0,
             summary: Default::default(),
@@ -484,7 +486,7 @@ impl<const N: usize, L: Leaf> Inode<N, L> {
     /// Panics if the inode is empty.
     #[inline]
     pub(super) fn first(&self) -> &Arc<Node<N, L>> {
-        &self.children[0]
+        &self.children()[0]
     }
 
     /// Creates a new inode from its children.
@@ -498,22 +500,13 @@ impl<const N: usize, L: Leaf> Inode<N, L> {
     where
         I: IntoIterator<Item = Arc<Node<N, L>>>,
     {
-        let children = children.into_iter().collect::<Vec<Arc<Node<N, L>>>>();
+        let mut inode = Self::empty();
 
-        debug_assert!(!children.is_empty());
-        debug_assert!(children.len() <= Self::max_children());
-
-        let depth = children[0].depth() + 1;
-
-        let mut leaf_count = children[0].leaf_count();
-        let mut summary = children[0].summary().clone();
-
-        for child in &children[1..] {
-            leaf_count += child.leaf_count();
-            summary += child.summary();
+        for child in children.into_iter() {
+            inode.push(child);
         }
 
-        Self { children, depth, leaf_count, summary }
+        inode
     }
 
     /// Constructs a new inode from an arbitrarily long sequence of nodes.
@@ -728,7 +721,7 @@ impl<const N: usize, L: Leaf> Inode<N, L> {
     #[inline]
     pub(super) fn last(&self) -> &Arc<Node<N, L>> {
         let last_idx = self.len() - 1;
-        &self.children[last_idx]
+        &self.children()[last_idx]
     }
 
     /// The number of children contained in this internal node.
@@ -871,13 +864,13 @@ impl<const N: usize, L: Leaf> Inode<N, L> {
         debug_assert!(child_idx < self.len());
         debug_assert_eq!(new_child.depth() + 1, self.depth());
 
-        let to_swap = &self.children[child_idx];
+        let to_swap = &self.children.as_slice()[child_idx];
         self.summary -= to_swap.summary();
         self.leaf_count -= to_swap.leaf_count();
 
         self.summary += new_child.summary();
         self.leaf_count += new_child.leaf_count();
-        self.children[child_idx] = new_child;
+        self.children_mut()[child_idx] = new_child;
     }
 
     /// Returns mutable references to the child nodes at `first_idx` and
@@ -897,7 +890,7 @@ impl<const N: usize, L: Leaf> Inode<N, L> {
         debug_assert!(second_idx < self.len());
 
         let split_at = first_idx + 1;
-        let (first, second) = self.children.split_at_mut(split_at);
+        let (first, second) = self.children_mut().split_at_mut(split_at);
         (&mut first[first_idx], &mut second[second_idx - split_at])
     }
 
@@ -914,7 +907,7 @@ impl<const N: usize, L: Leaf> Inode<N, L> {
     where
         F: FnOnce(&mut Arc<Node<N, L>>) -> T,
     {
-        let child = &mut self.children[child_idx];
+        let child = &mut self.children.as_slice_mut()[child_idx];
 
         self.summary -= child.summary();
         self.leaf_count -= child.leaf_count();
