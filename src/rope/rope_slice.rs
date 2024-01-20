@@ -31,6 +31,8 @@ impl<'a> RopeSlice<'a> {
 
     /// Returns the byte at `byte_index`.
     ///
+    /// For a checked version, see [`get_byte`](Self::get_byte).
+    ///
     /// # Panics
     ///
     /// Panics if the byte index is out of bounds (i.e. greater than or equal
@@ -51,16 +53,10 @@ impl<'a> RopeSlice<'a> {
     #[track_caller]
     #[inline]
     pub fn byte(&self, byte_index: usize) -> u8 {
-        if byte_index >= self.byte_len() {
-            panic::byte_index_out_of_bounds(byte_index, self.byte_len());
-        }
-
-        let (chunk, ByteMetric(chunk_byte_offset)) =
-            self.tree_slice.leaf_at_measure(ByteMetric(byte_index + 1));
-
-        chunk.byte(byte_index - chunk_byte_offset)
+        self.get_byte(byte_index).unwrap_or_else(|| {
+            panic::byte_index_out_of_bounds(byte_index, self.line_len())
+        })
     }
-
     /// Returns the length of the `RopeSlice` in bytes.
     ///
     /// # Examples
@@ -247,6 +243,129 @@ impl<'a> RopeSlice<'a> {
         Chunks::from(self)
     }
 
+    /// Returns the byte at `byte_index`, if it exists.
+    ///
+    /// If `byte_index` is out of bounds, returns `None`.
+    ///
+    /// For a panic'ing version, see [`byte`](Self::byte).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use crop::Rope;
+    /// #
+    /// let r = Rope::from("bar");
+    /// let s = r.byte_slice(..);
+    ///
+    /// assert_eq!(s.get_byte(0), Some(b'b'));
+    /// assert_eq!(s.get_byte(1), Some(b'a'));
+    /// assert_eq!(s.get_byte(2), Some(b'r'));
+    /// assert_eq!(s.get_byte(3), None);
+    /// ```
+    #[track_caller]
+    #[inline]
+    pub fn get_byte(&self, byte_index: usize) -> Option<u8> {
+        if byte_index >= self.byte_len() {
+            return None;
+        }
+
+        let (chunk, ByteMetric(chunk_byte_offset)) =
+            self.tree_slice.leaf_at_measure(ByteMetric(byte_index + 1));
+
+        Some(chunk.byte(byte_index - chunk_byte_offset))
+    }
+
+    /// Returns the line at `line_index`, without its line terminator, if it exists.
+    ///
+    /// If `line_index` is out of bounds, returns `None`.
+    ///
+    /// If you want to include the line break consider calling
+    /// [`get_line_slice()`](Self::get_line_slice()) in the
+    /// `line_index..line_index + 1` range.
+    ///
+    /// For a panic'ing version, see [`line_slice()`](Self::line_slice()).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use crop::Rope;
+    /// #
+    /// let r = Rope::from("foo\nbar\r\nbaz");
+    /// let s = r.byte_slice(..);
+    ///
+    /// assert_eq!(s.get_line(0).unwrap(), "foo");
+    /// assert_eq!(s.get_line(1).unwrap(), "bar");
+    /// assert_eq!(s.get_line(2).unwrap(), "baz");
+    /// assert_eq!(s.get_line(3), None);
+    /// ```
+    #[track_caller]
+    #[inline]
+    pub fn get_line(&self, line_index: usize) -> Option<RopeSlice<'a>> {
+        if line_index >= self.line_len() {
+            return None;
+        }
+
+        let tree_slice = self
+            .tree_slice
+            .slice(RawLineMetric(line_index)..RawLineMetric(line_index + 1));
+
+        let mut line = RopeSlice { tree_slice, has_trailing_newline: false };
+
+        if line.tree_slice.summary().line_breaks() == 1 {
+            line.truncate_trailing_line_break();
+        }
+
+        Some(line)
+    }
+
+    /// Returns an immutable slice of the `Rope` in the specified line range,
+    /// if it exists, where the start and end of the range are interpreted as
+    /// offsets.
+    ///
+    /// If `line_range` is out of bounds, returns `None`.
+    ///
+    /// If you want a single line, see [`get_line()`](Self::get_line).
+    ///
+    /// For a panic'ing version, see [`line_slice`](Self::line_slice).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use crop::Rope;
+    /// #
+    /// let r = Rope::from("foo\nbar\r\nbaz\nfoobar\n");
+    /// let s = r.byte_slice(..);
+    ///
+    /// assert_eq!(s.get_line_slice(..1).unwrap(), "foo\n");
+    /// assert_eq!(s.get_line_slice(1..3).unwrap(), "bar\r\nbaz\n");
+    /// assert_eq!(s.get_line_slice(3..).unwrap(), "foobar\n");
+    /// assert_eq!(s.get_line_slice(4..).unwrap(), "");
+    /// assert_eq!(s.get_line_slice(5..), None);
+    /// ```
+    #[track_caller]
+    #[inline]
+    pub fn get_line_slice<R>(&self, line_range: R) -> Option<RopeSlice<'a>>
+    where
+        R: RangeBounds<usize>,
+    {
+        let (start, end) =
+            range_bounds_to_start_end(line_range, 0, self.line_len());
+
+        if start > end {
+            return None;
+        }
+
+        if end > self.line_len() {
+            return None;
+        }
+
+        Some(
+            self.tree_slice
+                .slice(RawLineMetric(start)..RawLineMetric(end))
+                .into(),
+        )
+    }
+
     /// Returns an iterator over the extended grapheme clusters of this
     /// `RopeSlice`.
     ///
@@ -361,6 +480,9 @@ impl<'a> RopeSlice<'a> {
     /// [`line_slice()`](Self::line_slice()) in the
     /// `line_index..line_index + 1` range.
     ///
+    /// For a checked version, see
+    /// [`get_line_slice()`](Self::get_line_slice()).
+    ///
     /// # Panics
     ///
     /// Panics if the line index is out of bounds (i.e. greater than or equal
@@ -379,22 +501,10 @@ impl<'a> RopeSlice<'a> {
     /// ```
     #[track_caller]
     #[inline]
-    pub fn line(self, line_index: usize) -> RopeSlice<'a> {
-        if line_index >= self.line_len() {
-            panic::line_offset_out_of_bounds(line_index, self.line_len());
-        }
-
-        let tree_slice = self
-            .tree_slice
-            .slice(RawLineMetric(line_index)..RawLineMetric(line_index + 1));
-
-        let mut line = Self { tree_slice, has_trailing_newline: false };
-
-        if line.tree_slice.summary().line_breaks() == 1 {
-            line.truncate_trailing_line_break();
-        }
-
-        line
+    pub fn line(&self, line_index: usize) -> RopeSlice<'a> {
+        self.get_line(line_index).unwrap_or_else(|| {
+            panic::line_index_out_of_bounds(line_index, self.line_len())
+        })
     }
 
     /// Returns the number of lines in the `RopeSlice`.
@@ -469,6 +579,10 @@ impl<'a> RopeSlice<'a> {
 
     /// Returns a sub-slice of this `RopeSlice` in the specified line range,
     /// where the start and end of the range are interpreted as offsets.
+    ///
+    /// If you want a single line, see [`line()`](Self::line).
+    ///
+    /// If you want a checked version, see [`get_line_slice()`](Self::get_line_slice).
     ///
     /// # Panics
     ///
