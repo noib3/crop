@@ -135,6 +135,12 @@ impl<const ARITY: usize, L: Leaf> Tree<ARITY, L> {
         Self { root: Arc::new(Node::Internal(root)) }
     }
 
+    /// Returns `true` if the two roots point to the same allocation.
+    #[inline]
+    pub fn is_instance(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.root, &other.root)
+    }
+
     /// Returns the leaf containing the `measure`-th unit of the `M`-metric,
     /// plus the `M`-measure of all the leaves before it.
     #[inline]

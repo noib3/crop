@@ -441,6 +441,27 @@ impl Rope {
         is_grapheme_boundary(self.chunks(), self.byte_len(), byte_offset)
     }
 
+    /// Returns true if this rope and `other` point to precisely the same
+    /// in-memory data.
+    ///
+    /// This happens when one of the ropes is a clone of the other and
+    /// neither have been modified since then.  Because clones initially
+    /// share all the same data, it can be useful to check if they still
+    /// point to precisely the same memory as a way of determining
+    /// whether they are both still unmodified.
+    ///
+    /// Note: this is distinct from checking for equality: two ropes can
+    /// have the same *contents* (equal) but be stored in different
+    /// memory locations (not instances).  Importantly, two clones that
+    /// post-cloning are modified identically will *not* be instances
+    /// anymore, even though they will have equal contents.
+    ///
+    /// Runs in O(1) time.
+    #[inline]
+    pub fn is_instance(&self, other: &Self) -> bool {
+        self.tree.is_instance(&other.tree)
+    }
+
     /// Returns the line at `line_index`, without its line terminator.
     ///
     /// If you want to include the line break consider taking a

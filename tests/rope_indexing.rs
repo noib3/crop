@@ -35,6 +35,24 @@ fn rope_is_char_boundary() {
     }
 }
 
+#[cfg_attr(miri, ignore)]
+#[test]
+fn rope_is_instance() {
+    let r = Rope::from("Hello there!");
+    let mut c1 = r.clone();
+    let c2 = c1.clone();
+
+    assert!(r.is_instance(&c1));
+    assert!(r.is_instance(&c2));
+    assert!(c1.is_instance(&c2));
+
+    c1.insert(0, "Oh! ");
+
+    assert!(!r.is_instance(&c1));
+    assert!(r.is_instance(&c2));
+    assert!(!c1.is_instance(&c2));
+}
+
 /// ```
 /// Root
 /// ├───┐
