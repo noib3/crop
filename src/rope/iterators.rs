@@ -485,7 +485,7 @@ impl<'a> Iterator for Lines<'a> {
         let (tree_slice, ByteMetric(advance)) = self.units.next()?;
         self.lines_yielded += 1;
 
-        let mut slice = RopeSlice { tree_slice, has_trailing_newline: false };
+        let mut slice = RopeSlice { tree_slice };
 
         // This handles CRLF pairs that have been split across chunks. For
         // example, if we have "aaa\r" and "\nbbb" we should yield "aaa", but
@@ -513,7 +513,7 @@ impl DoubleEndedIterator for Lines<'_> {
         let (tree_slice, ByteMetric(advance)) = self.units.next_back()?;
         self.lines_yielded += 1;
 
-        let mut slice = RopeSlice { tree_slice, has_trailing_newline: false };
+        let mut slice = RopeSlice { tree_slice };
 
         // Same as above.
         if slice.tree_slice.end_slice().last_chunk().ends_with('\r')

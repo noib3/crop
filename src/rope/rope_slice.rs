@@ -13,7 +13,6 @@ use crate::tree::TreeSlice;
 #[derive(Copy, Clone)]
 pub struct RopeSlice<'a> {
     pub(super) tree_slice: TreeSlice<'a, { Rope::arity() }, RopeChunk>,
-    pub(super) has_trailing_newline: bool,
 }
 
 impl<'a> RopeSlice<'a> {
@@ -26,8 +25,6 @@ impl<'a> RopeSlice<'a> {
 
         let last = self.tree_slice.end_slice();
         last.assert_invariants();
-
-        assert_eq!(self.has_trailing_newline, last.has_trailing_newline())
     }
 
     /// Returns the byte at `byte_index`.
@@ -389,7 +386,7 @@ impl<'a> RopeSlice<'a> {
             .tree_slice
             .slice(RawLineMetric(line_index)..RawLineMetric(line_index + 1));
 
-        let mut line = Self { tree_slice, has_trailing_newline: false };
+        let mut line = Self { tree_slice };
 
         if line.tree_slice.summary().line_breaks() == 1 {
             line.truncate_trailing_line_break();
@@ -400,8 +397,7 @@ impl<'a> RopeSlice<'a> {
 
     /// Returns the number of lines in the `RopeSlice`.
     ///
-    /// The final line break is optional and doesn't count as a separate empty
-    /// line.
+    /// The final line break counts as a separate empty line.
     ///
     /// # Examples
     ///
@@ -411,25 +407,23 @@ impl<'a> RopeSlice<'a> {
     /// let r = Rope::from("a\nb\r\n");
     ///
     /// let s = r.byte_slice(..);
-    /// assert_eq!(s.line_len(), 2);
+    /// assert_eq!(s.line_len(), 3);
     ///
     /// let s = r.byte_slice(..3);
     /// assert_eq!(s.line_len(), 2);
     ///
     /// let s = r.byte_slice(..2);
-    /// assert_eq!(s.line_len(), 1);
+    /// assert_eq!(s.line_len(), 2);
     ///
     /// let s = r.byte_slice(..1);
     /// assert_eq!(s.line_len(), 1);
     ///
     /// let s = r.byte_slice(..0);
-    /// assert_eq!(s.line_len(), 0);
+    /// assert_eq!(s.line_len(), 1);
     /// ```
     #[inline]
     pub fn line_len(&self) -> usize {
         self.tree_slice.summary().line_breaks() + 1
-            - (self.has_trailing_newline as usize)
-            - (self.is_empty() as usize)
     }
 
     /// Returns the line offset of the given byte.
@@ -736,13 +730,7 @@ impl<'a> RopeSlice<'a> {
 impl<'a> From<TreeSlice<'a, { Rope::arity() }, RopeChunk>> for RopeSlice<'a> {
     #[inline]
     fn from(tree_slice: TreeSlice<'a, { Rope::arity() }, RopeChunk>) -> Self {
-        Self {
-            has_trailing_newline: tree_slice
-                .end_slice()
-                .has_trailing_newline(),
-
-            tree_slice,
-        }
+        Self { tree_slice }
     }
 }
 

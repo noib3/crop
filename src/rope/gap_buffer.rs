@@ -404,12 +404,6 @@ impl<const MAX_BYTES: usize> GapBuffer<MAX_BYTES> {
         unreachable!("This can only be reached if the total length is zero");
     }
 
-    /// Returns `true` if the buffer ends with a newline ('\n') character.
-    #[inline]
-    pub(super) fn has_trailing_newline(&self) -> bool {
-        self.last_chunk().ends_with('\n')
-    }
-
     /// Inserts the string at the given byte offset, moving the gap to the new
     /// insertion point if necessary.
     ///

@@ -110,7 +110,7 @@ fn line_slice_1() {
     assert_eq!("Hello world", r.line_slice(..));
 
     let r = Rope::from("Hello world\n");
-    assert_eq!(1, r.line_len());
+    assert_eq!(2, r.line_len());
     assert_eq!("Hello world\n", r.line_slice(..));
 
     let r = Rope::from("Hello world\nthis is\na test");
@@ -152,15 +152,23 @@ fn line_slices_random() {
 
         let line_offsets = {
             let mut offset = 0;
+            let mut ends_in_newline = true;
 
-            rope_slice
+            let mut line_offsets = rope_slice
                 .raw_lines()
                 .map(|line| {
                     let o = offset;
+                    ends_in_newline = line.byte(line.byte_len() - 1) == b'\n';
                     offset += line.byte_len();
                     o
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+
+            if ends_in_newline {
+                line_offsets.push(offset);
+            }
+
+            line_offsets
         };
 
         assert_eq!(line_offsets.len(), rope_slice.line_len());

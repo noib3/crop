@@ -31,7 +31,6 @@ pub(super) type RopeChunk = GapBuffer<CHUNK_MAX_BYTES>;
 #[derive(Clone, Default)]
 pub struct Rope {
     pub(super) tree: Tree<{ Self::arity() }, RopeChunk>,
-    pub(super) has_trailing_newline: bool,
 }
 
 impl Rope {
@@ -39,9 +38,7 @@ impl Rope {
     pub fn assert_invariants(&self) {
         self.tree.assert_invariants();
 
-        if let Some(last) = self.chunks().next_back() {
-            assert_eq!(self.has_trailing_newline, last.ends_with('\n'));
-        } else {
+        if self.chunks().next_back().is_none() {
             return;
         }
 
@@ -474,7 +471,7 @@ impl Rope {
             .tree
             .slice(RawLineMetric(line_index)..RawLineMetric(line_index + 1));
 
-        let mut line = RopeSlice { tree_slice, has_trailing_newline: false };
+        let mut line = RopeSlice { tree_slice };
 
         if line.tree_slice.summary().line_breaks() == 1 {
             line.truncate_trailing_line_break();
@@ -485,8 +482,7 @@ impl Rope {
 
     /// Returns the number of lines in the `Rope`.
     ///
-    /// The final line break is optional and doesn't count as a separate empty
-    /// line.
+    /// The final line break counts as a separate empty line.
     ///
     /// # Examples
     ///
@@ -495,25 +491,23 @@ impl Rope {
     /// #
     /// let mut r = Rope::new();
     ///
-    /// assert_eq!(r.line_len(), 0);
+    /// assert_eq!(r.line_len(), 1);
     ///
     /// r.insert(0, "a");
     /// assert_eq!(r.line_len(), 1);
     ///
     /// r.insert(1, "\n");
-    /// assert_eq!(r.line_len(), 1);
+    /// assert_eq!(r.line_len(), 2);
     ///
     /// r.insert(2, "b");
     /// assert_eq!(r.line_len(), 2);
     ///
     /// r.insert(3, "\r\n");
-    /// assert_eq!(r.line_len(), 2);
+    /// assert_eq!(r.line_len(), 3);
     /// ```
     #[inline]
     pub fn line_len(&self) -> usize {
         self.tree.summary().line_breaks() + 1
-            - (self.has_trailing_newline as usize)
-            - (self.is_empty() as usize)
     }
 
     /// Returns the line offset of the given byte.
@@ -700,24 +694,7 @@ impl Rope {
 
         let text = text.as_ref();
 
-        let mut update_trailing = false;
-
-        if end == self.byte_len() {
-            if !text.is_empty() {
-                self.has_trailing_newline = text.ends_with('\n');
-            } else if start == 0 {
-                self.has_trailing_newline = false;
-            } else {
-                update_trailing = true;
-            }
-        }
-
         self.tree.replace(ByteMetric(start)..ByteMetric(end), text);
-
-        if update_trailing {
-            self.has_trailing_newline =
-                self.chunks().next_back().unwrap().ends_with('\n');
-        }
     }
 
     /// Returns the number of UTF-16 code units the `Rope` would have if it
@@ -821,10 +798,7 @@ impl Rope {
 impl From<RopeSlice<'_>> for Rope {
     #[inline]
     fn from(rope_slice: RopeSlice<'_>) -> Rope {
-        Self {
-            has_trailing_newline: rope_slice.has_trailing_newline,
-            tree: Tree::from(rope_slice.tree_slice),
-        }
+        Self { tree: Tree::from(rope_slice.tree_slice) }
     }
 }
 
@@ -851,7 +825,6 @@ impl From<&str> for Rope {
     #[inline]
     fn from(s: &str) -> Self {
         Rope {
-            has_trailing_newline: s.ends_with('\n'),
             tree: Tree::from_leaves(
                 RopeChunk::segmenter(s).map(RopeChunk::from),
             ),
