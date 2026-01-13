@@ -7,7 +7,7 @@
 ### Additions
 
 - added a new `serde` feature that enables the `Serialize` and `Deserialize`
-  implementations for `Rope` ([#27](https://github.com/nomad/crop/pull/27));
+  implementations for `Rope` ([#27](https://github.com/noib3/crop/pull/27));
 
 ## [0.4.2] - Jan 22 2024
 
@@ -16,7 +16,7 @@
 - fixed a bug that caused `RopeSlice::line_slice()` to panic or halt forever
   when both the start and end of the range are equal to `RopeSlice::line_len()`
   and the `RopeSlice` didn't end with a line break
-  ([#16](https://github.com/nomad/crop/issues/16));
+  ([#16](https://github.com/noib3/crop/issues/16));
 
 ## [0.4.1] - Dec 1 2023
 
@@ -76,10 +76,10 @@
 
 - the `Chunks` iterator no longer implements `ExactSizeIterator`;
 
-[Unreleased]: https://github.com/nomad/crop/compare/v0.4.3...HEAD
-[0.4.3]: https://github.com/nomad/crop/compare/v0.4.2...v0.4.3
-[0.4.2]: https://github.com/nomad/crop/compare/v0.4.1...v0.4.2
-[0.4.1]: https://github.com/nomad/crop/compare/v0.4.0...v0.4.1
-[0.4.0]: https://github.com/nomad/crop/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/nomad/crop/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/nomad/crop/compare/v0.1.0...v0.2.0
+[Unreleased]: https://github.com/noib3/crop/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/noib3/crop/compare/v0.4.2...v0.4.3
+[0.4.2]: https://github.com/noib3/crop/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/noib3/crop/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/noib3/crop/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/noib3/crop/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/noib3/crop/compare/v0.1.0...v0.2.0

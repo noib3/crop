@@ -2,11 +2,11 @@
 
 [![Latest version]](https://crates.io/crates/crop)
 [![Docs badge]](https://docs.rs/crop)
-[![CI]](https://github.com/nomad/crop/actions)
+[![CI]](https://github.com/noib3/crop/actions)
 
 [Latest version]: https://img.shields.io/crates/v/crop.svg
 [Docs badge]: https://docs.rs/crop/badge.svg
-[CI]: https://github.com/nomad/crop/actions/workflows/ci.yml/badge.svg
+[CI]: https://github.com/noib3/crop/actions/workflows/ci.yml/badge.svg
 
 crop is an implementation of a text rope, a data structure designed to be used
 in applications that need to handle frequent edits to arbitrarily large
@@ -170,9 +170,9 @@ Jumprope doesn't currently have any line-based APIs.
   the "Rope science" series by Raph Levien for more infos.
 
 [crdt-benchmarks]: https://github.com/josephg/crdt-benchmarks
-[crop-metric]: https://github.com/nomad/crop/blob/21638ed46864b140ad52f41449f1274b15ca3eb2/src/tree/traits.rs#L71-L92
+[crop-metric]: https://github.com/noib3/crop/blob/21638ed46864b140ad52f41449f1274b15ca3eb2/src/tree/traits.rs#L71-L92
 [jumprope]: https://github.com/josephg/jumprope-rs
 [rope-science-2]: https://xi-editor.io/docs/rope_science_02.html
 [ropey]: https://github.com/cessen/ropey
-[synthetic-benches]: https://github.com/nomad/crop/blob/main/BENCHMARKS.md
+[synthetic-benches]: https://github.com/noib3/crop/blob/main/BENCHMARKS.md
 [xi-rope-metric]: https://docs.rs/xi-rope/latest/xi_rope/tree/trait.Metric.html
