@@ -220,3 +220,13 @@ fn rope_from_slice() {
         }
     }
 }
+
+/// Regression test for https://github.com/noib3/crop/issues/36 (different
+/// input but exercises the same code paths).
+#[test]
+fn byte_slice_of_line() {
+    let rope = Rope::from("foobar");
+    let ooba = rope.byte_slice(1..5);
+    assert_eq!(ooba.lines().next().unwrap().byte_slice(..), "ooba");
+    assert_eq!(ooba.lines().next_back().unwrap().byte_slice(..), "ooba");
+}
