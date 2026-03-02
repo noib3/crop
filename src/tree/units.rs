@@ -324,9 +324,7 @@ impl<'a, const N: usize, L: Leaf, M: UnitMetric<L>> UnitsForward<'a, N, L, M> {
 
                     match self.first_slice.take() {
                         Some(slice) => {
-                            self.yielded_in_leaf =
-                                leaf.base_len() - slice.base_len();
-
+                            self.yielded_in_leaf = self.base_start - offset;
                             self.start_slice = slice;
                         },
 
@@ -971,9 +969,10 @@ impl<'a, const N: usize, L: Leaf, M: DoubleEndedUnitMetric<L>>
 
                     match self.last_slice.take() {
                         Some(slice) => {
+                            let range_end =
+                                self.base_start + self.base_remaining;
                             self.yielded_in_leaf =
-                                leaf.base_len() - slice.base_len();
-
+                                offset + leaf.base_len() - range_end;
                             self.end_slice = slice;
                         },
 
@@ -1173,10 +1172,14 @@ impl<'a, const N: usize, L: Leaf, M: DoubleEndedUnitMetric<L>>
         // First, check if the current leaf node is the root. If it is we're
         // done.
         if self.base_remaining == advance {
+            let offset = self.leaf_node.base_len()
+                - self.yielded_in_leaf
+                - end_slice.base_len();
+
             return (
                 TreeSlice {
                     root: self.leaf_node,
-                    offset: L::BaseMetric::zero(),
+                    offset,
                     summary: end_slice.summarize(),
                     start_slice: end_slice,
                     end_slice,
