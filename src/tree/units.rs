@@ -1577,7 +1577,8 @@ impl<'a, const N: usize, L: Leaf, M: DoubleEndedUnitMetric<L>>
                 Some((
                     TreeSlice {
                         root: self.leaf_node,
-                        offset: rest.base_len(),
+                        offset: self.leaf_node.base_len()
+                            - self.yielded_in_leaf,
                         start_slice: slice,
                         end_slice: slice,
                         summary,

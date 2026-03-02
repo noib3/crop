@@ -230,3 +230,11 @@ fn byte_slice_of_line() {
     assert_eq!(ooba.lines().next().unwrap().byte_slice(..), "ooba");
     assert_eq!(ooba.lines().next_back().unwrap().byte_slice(..), "ooba");
 }
+
+#[test]
+fn backward_remainder_correct_offset_in_leaf() {
+    let rope = Rope::from("foo\nbar");
+    let slice = rope.byte_slice(2..6); // "o\nba"
+    let last_line = slice.lines().next_back().unwrap();
+    assert_eq!(last_line.byte_slice(..), "ba");
+}
