@@ -51,7 +51,7 @@ impl<T> Arc<T> {
 
     #[inline]
     fn is_unique(&self) -> bool {
-        self.inner().counter.load(atomic::Ordering::Relaxed) == 1
+        self.inner().counter.load(atomic::Ordering::Acquire) == 1
     }
 
     #[inline]
