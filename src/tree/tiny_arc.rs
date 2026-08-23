@@ -51,18 +51,20 @@ impl<T> Arc<T> {
 
     #[inline]
     fn is_unique(&self) -> bool {
-        self.inner().counter.load(atomic::Ordering::Relaxed) == 1
+        let is_unique =
+            self.inner().counter.load(atomic::Ordering::Relaxed) == 1;
+
+        if is_unique {
+            atomic::fence(atomic::Ordering::Acquire);
+        }
+
+        is_unique
     }
 
     #[inline]
     pub(super) fn new(data: T) -> Self {
         let inner = ArcInner { counter: atomic::AtomicUsize::new(1), data };
-
-        // SAFETY: the pointer returned by `Box::into_raw()` is guaranteed to
-        // be non-null.
-        let ptr =
-            unsafe { NonNull::new_unchecked(Box::into_raw(Box::new(inner))) };
-
+        let ptr = NonNull::from(Box::leak(Box::new(inner)));
         Self { ptr }
     }
 

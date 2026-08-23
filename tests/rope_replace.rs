@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crop::Rope;
 use rand::Rng;
 
@@ -267,6 +269,26 @@ fn delete_8() {
 fn delete_9() {
     let mut r = Rope::from(TEXT);
     r.delete(128..129); // Removing past the end
+}
+
+#[test]
+fn delete_clone_after_concurrent_drop() {
+    let mut rope = Rope::from("vvymuxemw");
+    let rope_clone = rope.clone();
+    let clone_dropped = AtomicBool::new(false);
+
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            drop(rope_clone);
+            clone_dropped.store(true, Ordering::Relaxed);
+        });
+
+        while !clone_dropped.load(Ordering::Relaxed) {
+            std::hint::spin_loop();
+        }
+
+        rope.delete(..);
+    });
 }
 
 #[cfg_attr(miri, ignore)]

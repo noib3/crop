@@ -1051,7 +1051,7 @@ fn pretty_print_inode<const N: usize, L: Leaf>(
                 shifts.truncate(shifts.len() - shift.len());
             },
             Node::Leaf(leaf) => {
-                writeln!(f, "{}{}{:#?}", &shifts, ident, &leaf)?;
+                writeln!(f, "{}{}{:#?}", shifts, ident, leaf)?;
             },
         }
     }
