@@ -21,7 +21,6 @@ pub(super) type RopeChunk = GapBuffer;
 #[derive(Clone, Default)]
 pub struct Rope {
     pub(super) tree: Tree<{ Self::arity() }, GapBuffer>,
-    pub(super) has_trailing_newline: bool,
 }
 
 impl Rope {
@@ -29,9 +28,7 @@ impl Rope {
     pub fn assert_invariants(&self) {
         self.tree.assert_invariants();
 
-        if let Some(last) = self.chunks().next_back() {
-            assert_eq!(self.has_trailing_newline, last.ends_with('\n'));
-        } else {
+        if self.chunks().next_back().is_none() {
             return;
         }
 
@@ -450,7 +447,7 @@ impl Rope {
     /// # Panics
     ///
     /// Panics if the line index is out of bounds (i.e. greater than or equal
-    /// to [`line_len()`](Self::byte_len())).
+    /// to [`line_len()`](Self::line_len())).
     ///
     /// # Examples
     ///
@@ -462,6 +459,17 @@ impl Rope {
     /// assert_eq!(r.line(0), "foo");
     /// assert_eq!(r.line(1), "bar");
     /// assert_eq!(r.line(2), "baz");
+    ///
+    /// // A trailing line break counts as a separate empty line.
+    /// let r = Rope::from("foo\n");
+    ///
+    /// assert_eq!(r.line(0), "foo");
+    /// assert_eq!(r.line(1), "");
+    ///
+    /// // An empty `Rope` has a single empty line.
+    /// let r = Rope::new();
+    ///
+    /// assert_eq!(r.line(0), "");
     /// ```
     #[track_caller]
     #[inline]
@@ -473,7 +481,6 @@ impl Rope {
         if line_index == self.tree.summary().line_breaks() {
             return RopeSlice {
                 tree_slice: self.tree.slice_from(RawLineMetric(line_index)),
-                has_trailing_newline: false,
             };
         }
 
@@ -481,7 +488,7 @@ impl Rope {
             .tree
             .slice(RawLineMetric(line_index)..RawLineMetric(line_index + 1));
 
-        let mut line = RopeSlice { tree_slice, has_trailing_newline: false };
+        let mut line = RopeSlice { tree_slice };
 
         if line.tree_slice.summary().line_breaks() == 1 {
             line.truncate_trailing_line_break();
@@ -492,8 +499,7 @@ impl Rope {
 
     /// Returns the number of lines in the `Rope`.
     ///
-    /// The final line break is optional and doesn't count as a separate empty
-    /// line.
+    /// The final line break counts as a separate empty line.
     ///
     /// # Examples
     ///
@@ -502,25 +508,23 @@ impl Rope {
     /// #
     /// let mut r = Rope::new();
     ///
-    /// assert_eq!(r.line_len(), 0);
+    /// assert_eq!(r.line_len(), 1);
     ///
     /// r.insert(0, "a");
     /// assert_eq!(r.line_len(), 1);
     ///
     /// r.insert(1, "\n");
-    /// assert_eq!(r.line_len(), 1);
+    /// assert_eq!(r.line_len(), 2);
     ///
     /// r.insert(2, "b");
     /// assert_eq!(r.line_len(), 2);
     ///
     /// r.insert(3, "\r\n");
-    /// assert_eq!(r.line_len(), 2);
+    /// assert_eq!(r.line_len(), 3);
     /// ```
     #[inline]
     pub fn line_len(&self) -> usize {
         self.tree.summary().line_breaks() + 1
-            - (self.has_trailing_newline as usize)
-            - (self.is_empty() as usize)
     }
 
     /// Returns the line offset of the given byte.
@@ -599,8 +603,7 @@ impl Rope {
             } else {
                 self.tree.slice_from(RawLineMetric(start))
             };
-            debug_assert!(!tree_slice.end_slice().has_trailing_newline());
-            return RopeSlice { tree_slice, has_trailing_newline: false };
+            return RopeSlice { tree_slice };
         }
 
         self.tree.slice(RawLineMetric(start)..RawLineMetric(end)).into()
@@ -609,8 +612,7 @@ impl Rope {
     /// Returns an iterator over the lines of this `Rope`, not including the
     /// line terminators.
     ///
-    /// The final line break is optional and doesn't cause the iterator to
-    /// return a final empty line.
+    /// The final line break counts as a separate empty line.
     ///
     /// If you want to include the line breaks consider using the
     /// [`raw_lines()`](Self::raw_lines()) method instead.
@@ -627,6 +629,7 @@ impl Rope {
     /// assert_eq!("foo", lines.next().unwrap());
     /// assert_eq!("bar", lines.next().unwrap());
     /// assert_eq!("baz", lines.next().unwrap());
+    /// assert_eq!("", lines.next().unwrap());
     /// assert_eq!(None, lines.next());
     /// ```
     #[inline]
@@ -637,8 +640,7 @@ impl Rope {
     /// Returns an iterator over the lines of this `Rope`, including the
     /// line terminators.
     ///
-    /// The final line break is optional and doesn't cause the iterator to
-    /// return a final empty line.
+    /// The final line break counts as a separate empty line.
     ///
     /// If you don't want to include the line breaks consider using the
     /// [`lines()`](Self::lines()) method instead.
@@ -664,6 +666,7 @@ impl Rope {
     /// assert_eq!("foo\n", raw_lines.next().unwrap());
     /// assert_eq!("bar\r\n", raw_lines.next().unwrap());
     /// assert_eq!("baz\n", raw_lines.next().unwrap());
+    /// assert_eq!("", raw_lines.next().unwrap());
     /// assert_eq!(None, raw_lines.next());
     /// ```
     #[inline]
@@ -717,24 +720,7 @@ impl Rope {
 
         let text = text.as_ref();
 
-        let mut update_trailing = false;
-
-        if end == self.byte_len() {
-            if !text.is_empty() {
-                self.has_trailing_newline = text.ends_with('\n');
-            } else if start == 0 {
-                self.has_trailing_newline = false;
-            } else {
-                update_trailing = true;
-            }
-        }
-
         self.tree.replace(ByteMetric(start)..ByteMetric(end), text);
-
-        if update_trailing {
-            self.has_trailing_newline =
-                self.chunks().next_back().unwrap().ends_with('\n');
-        }
     }
 
     /// Returns the number of UTF-16 code units the `Rope` would have if it
@@ -838,10 +824,7 @@ impl Rope {
 impl From<RopeSlice<'_>> for Rope {
     #[inline]
     fn from(rope_slice: RopeSlice<'_>) -> Rope {
-        Self {
-            has_trailing_newline: rope_slice.has_trailing_newline,
-            tree: Tree::from(rope_slice.tree_slice),
-        }
+        Self { tree: Tree::from(rope_slice.tree_slice) }
     }
 }
 
@@ -868,7 +851,6 @@ impl From<&str> for Rope {
     #[inline]
     fn from(s: &str) -> Self {
         Rope {
-            has_trailing_newline: s.ends_with('\n'),
             tree: Tree::from_leaves(
                 GapBuffer::segmenter(s).map(GapBuffer::from),
             ),

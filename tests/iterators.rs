@@ -5,6 +5,48 @@ mod common;
 
 use common::{CURSED_LIPSUM, LARGE, MEDIUM, SMALL, TINY};
 
+/// Splits `s` into lines the same way `Rope::lines()` does, including a final
+/// empty line if `s` ends with a line break (or is empty).
+fn expected_lines(s: &str) -> Vec<&str> {
+    let mut lines = Vec::new();
+    let mut start = 0;
+
+    for (idx, byte) in s.bytes().enumerate() {
+        if byte == b'\n' {
+            let end = if idx > start && s.as_bytes()[idx - 1] == b'\r' {
+                idx - 1
+            } else {
+                idx
+            };
+
+            lines.push(&s[start..end]);
+            start = idx + 1;
+        }
+    }
+
+    lines.push(&s[start..]);
+
+    lines
+}
+
+/// Splits `s` into lines the same way `Rope::raw_lines()` does, including a
+/// final empty line if `s` ends with a line break (or is empty).
+fn expected_raw_lines(s: &str) -> Vec<&str> {
+    let mut lines = Vec::new();
+    let mut start = 0;
+
+    for (idx, byte) in s.bytes().enumerate() {
+        if byte == b'\n' {
+            lines.push(&s[start..=idx]);
+            start = idx + 1;
+        }
+    }
+
+    lines.push(&s[start..]);
+
+    lines
+}
+
 #[test]
 fn iter_bytes_empty() {
     let r = Rope::new();
@@ -274,8 +316,40 @@ fn iter_chars_cursed() {
 #[test]
 fn iter_lines_empty() {
     let r = Rope::new();
-    assert_eq!(0, r.lines().count());
-    assert_eq!(0, r.line_slice(..).lines().count());
+    assert_eq!(1, r.lines().count());
+    assert_eq!(1, r.line_slice(..).lines().count());
+}
+
+#[test]
+fn lines_iterator_len_mismatch() {
+    let r = Rope::from("foo\n");
+    assert_eq!(r.lines().len(), 2);
+
+    let mut lines = r.lines();
+    assert_eq!(lines.next().unwrap(), "foo");
+    assert_eq!(lines.next().unwrap(), "");
+    assert_eq!(lines.next(), None);
+
+    let mut lines = r.lines();
+    assert_eq!(lines.next_back().unwrap(), "");
+    assert_eq!(lines.next_back().unwrap(), "foo");
+    assert_eq!(lines.next_back(), None);
+}
+
+#[test]
+fn raw_lines_iterator_len_mismatch() {
+    let r = Rope::from("foo\n");
+    assert_eq!(r.raw_lines().len(), 2);
+
+    let mut lines = r.raw_lines();
+    assert_eq!(lines.next().unwrap(), "foo\n");
+    assert_eq!(lines.next().unwrap(), "");
+    assert_eq!(lines.next(), None);
+
+    let mut lines = r.raw_lines();
+    assert_eq!(lines.next_back().unwrap(), "");
+    assert_eq!(lines.next_back().unwrap(), "foo\n");
+    assert_eq!(lines.next_back(), None);
 }
 
 #[test]
@@ -289,20 +363,20 @@ fn iter_lines_0() {
     assert_eq!(2, r.byte_slice(..).lines().count());
 
     let r = Rope::from("a\nb\n");
-    assert_eq!(2, r.lines().count());
-    assert_eq!(2, r.byte_slice(..).lines().count());
+    assert_eq!(3, r.lines().count());
+    assert_eq!(3, r.byte_slice(..).lines().count());
 
     let r = Rope::from("\na\nb");
     assert_eq!(3, r.lines().count());
     assert_eq!(3, r.byte_slice(..).lines().count());
 
     let r = Rope::from("\n\n\n");
-    assert_eq!(3, r.lines().count());
-    assert_eq!(3, r.byte_slice(..).lines().count());
-
-    let r = Rope::from("\n\n\n\n");
     assert_eq!(4, r.lines().count());
     assert_eq!(4, r.byte_slice(..).lines().count());
+
+    let r = Rope::from("\n\n\n\n");
+    assert_eq!(5, r.lines().count());
+    assert_eq!(5, r.byte_slice(..).lines().count());
 
     let r = Rope::from("\n\n\na");
     assert_eq!(4, r.lines().count());
@@ -312,36 +386,38 @@ fn iter_lines_0() {
 #[test]
 fn iter_lines_1() {
     let s = "\n\n\r\n\r\n\n\r\n\n";
+    let expected = expected_lines(s);
 
     let rope = Rope::from(s);
     let slice = rope.byte_slice(..);
 
-    assert_eq!(rope.lines().count(), s.lines().count());
-    assert_eq!(slice.lines().count(), s.lines().count());
+    assert_eq!(rope.lines().count(), expected.len());
+    assert_eq!(slice.lines().count(), expected.len());
 
-    for ((rope_line, slice_line), s_line) in
-        rope.lines().zip(slice.lines()).zip(s.lines())
+    for ((rope_line, slice_line), expected_line) in
+        rope.lines().zip(slice.lines()).zip(expected)
     {
-        assert_eq!(rope_line, s_line);
-        assert_eq!(slice_line, s_line);
+        assert_eq!(rope_line, expected_line);
+        assert_eq!(slice_line, expected_line);
     }
 }
 
 #[test]
 fn iter_lines_2() {
     let s = "this is\na line\r\nwith mixed\nline breaks\n";
+    let expected = expected_lines(s);
 
     let rope = Rope::from(s);
     let slice = rope.byte_slice(..);
 
-    assert_eq!(rope.lines().count(), s.lines().count());
-    assert_eq!(slice.lines().count(), s.lines().count());
+    assert_eq!(rope.lines().count(), expected.len());
+    assert_eq!(slice.lines().count(), expected.len());
 
-    for ((rope_line, slice_line), s_line) in
-        rope.lines().zip(slice.lines()).zip(s.lines())
+    for ((rope_line, slice_line), expected_line) in
+        rope.lines().zip(slice.lines()).zip(expected)
     {
-        assert_eq!(rope_line, s_line);
-        assert_eq!(slice_line, s_line);
+        assert_eq!(rope_line, expected_line);
+        assert_eq!(slice_line, expected_line);
     }
 }
 
@@ -350,18 +426,19 @@ fn iter_lines_3() {
     let s = "This is a piece\nof text that doesn't\nfit in one\n chunk\nand \
              it also\r\nhas mixed\r\n line breaks\n and no trailing\nline \
              break.";
+    let expected = expected_lines(s);
 
     let rope = Rope::from(s);
     let slice = rope.byte_slice(..);
 
-    assert_eq!(rope.lines().count(), s.lines().count());
-    assert_eq!(slice.lines().count(), s.lines().count());
+    assert_eq!(rope.lines().count(), expected.len());
+    assert_eq!(slice.lines().count(), expected.len());
 
-    for ((rope_line, slice_line), s_line) in
-        rope.lines().zip(slice.lines()).zip(s.lines())
+    for ((rope_line, slice_line), expected_line) in
+        rope.lines().zip(slice.lines()).zip(expected)
     {
-        assert_eq!(rope_line, s_line);
-        assert_eq!(slice_line, s_line);
+        assert_eq!(rope_line, expected_line);
+        assert_eq!(slice_line, expected_line);
     }
 }
 
@@ -390,19 +467,21 @@ fn iter_lines_4() {
 #[test]
 fn iter_lines_over_test_vectors() {
     for s in [TINY, SMALL, MEDIUM, LARGE, CURSED_LIPSUM] {
+        let expected = expected_lines(s);
+
         let rope = Rope::from(s);
         let slice = rope.byte_slice(..);
 
-        assert_eq!(rope.lines().count(), s.lines().count());
-        assert_eq!(slice.lines().count(), s.lines().count());
+        assert_eq!(rope.lines().count(), expected.len());
+        assert_eq!(slice.lines().count(), expected.len());
 
-        for ((rope_line, slice_line), s_line) in
-            rope.lines().zip(slice.lines()).zip(s.lines())
+        for ((rope_line, slice_line), expected_line) in
+            rope.lines().zip(slice.lines()).zip(&expected)
         {
             rope_line.assert_invariants();
             slice_line.assert_invariants();
-            assert_eq!(rope_line, s_line);
-            assert_eq!(slice_line, s_line);
+            assert_eq!(rope_line, *expected_line);
+            assert_eq!(slice_line, *expected_line);
         }
     }
 }
@@ -416,9 +495,11 @@ fn iter_lines_forward_backward() {
     assert_eq!("a", forward.next().unwrap());
     assert_eq!("b", forward.next().unwrap());
     assert_eq!("c", forward.next().unwrap());
+    assert_eq!("", forward.next().unwrap());
     assert_eq!(None, forward.next());
 
     let mut backward = r.lines().rev();
+    assert_eq!("", backward.next().unwrap());
     assert_eq!("c", backward.next().unwrap());
     assert_eq!("b", backward.next().unwrap());
     assert_eq!("a", backward.next().unwrap());
@@ -442,33 +523,33 @@ fn iter_lines_over_random_slices() {
 
             let rope_slice = rope.byte_slice(range.clone());
             let str_slice = &s[range.clone()];
+            let expected = expected_lines(str_slice);
 
-            for (idx, (rope_line, str_line)) in
-                rope_slice.lines().zip(str_slice.lines()).enumerate()
+            assert_eq!(rope_slice.lines().count(), expected.len());
+
+            for (idx, (rope_line, expected_line)) in
+                rope_slice.lines().zip(&expected).enumerate()
             {
                 rope_line.assert_invariants();
-                if rope_line != str_line {
+                if rope_line != *expected_line {
                     println!(
                         "Failed on line #{} in byte range: {range:?}",
                         idx + 1
                     );
-                    assert_eq!(rope_line, str_line);
+                    assert_eq!(rope_line, *expected_line);
                 }
             }
 
-            for ((idx, rope_line), str_line) in rope_slice
-                .lines()
-                .enumerate()
-                .rev()
-                .zip(str_slice.lines().rev())
+            for ((idx, rope_line), expected_line) in
+                rope_slice.lines().enumerate().rev().zip(expected.iter().rev())
             {
                 rope_line.assert_invariants();
-                if rope_line != str_line {
+                if rope_line != *expected_line {
                     println!(
                         "Failed on line #{} in byte range: {range:?}",
                         idx + 1
                     );
-                    assert_eq!(rope_line, str_line);
+                    assert_eq!(rope_line, *expected_line);
                 }
             }
         }
@@ -521,19 +602,21 @@ fn iter_raw_lines_backward_0() {
 #[test]
 fn iter_raw_lines_over_test_vectors() {
     for s in [TINY, SMALL, MEDIUM, LARGE] {
-        let rope = Rope::from(s);
+        let expected = expected_raw_lines(s);
 
-        for (i, (rope_line, s_line)) in
-            rope.raw_lines().zip(s.lines()).enumerate()
+        let rope = Rope::from(s);
+        let slice = rope.byte_slice(..);
+
+        assert_eq!(rope.raw_lines().count(), expected.len());
+        assert_eq!(slice.raw_lines().count(), expected.len());
+
+        for ((rope_line, slice_line), expected_line) in
+            rope.raw_lines().zip(slice.raw_lines()).zip(&expected)
         {
             rope_line.assert_invariants();
-            if i != rope.line_len() - 1 || s.ends_with('\n') {
-                let mut line = s_line.to_owned();
-                line.push('\n');
-                assert_eq!(line, rope_line);
-            } else {
-                assert_eq!(s_line, rope_line);
-            }
+            slice_line.assert_invariants();
+            assert_eq!(rope_line, *expected_line);
+            assert_eq!(slice_line, *expected_line);
         }
     }
 }
@@ -554,59 +637,38 @@ fn iter_raw_lines_over_random_slices() {
 
             let rope_slice = rope.byte_slice(range.clone());
             let str_slice = &s[range.clone()];
+            let expected = expected_raw_lines(str_slice);
 
-            for (idx, (rope_line, str_line)) in
-                rope_slice.raw_lines().zip(str_slice.lines()).enumerate()
+            assert_eq!(rope_slice.raw_lines().count(), expected.len());
+
+            for (idx, (rope_line, expected_line)) in
+                rope_slice.raw_lines().zip(&expected).enumerate()
             {
                 rope_line.assert_invariants();
 
-                let is_last = idx == rope_slice.line_len() - 1;
-
-                // TODO: use `RopeSlice::ends_with()` if/when that's
-                // implemented.
-                let str_line = if !is_last || str_slice.ends_with('\n') {
-                    let mut l = str_line.to_owned();
-                    l.push('\n');
-                    std::borrow::Cow::Owned(l)
-                } else {
-                    std::borrow::Cow::Borrowed(str_line)
-                };
-
-                if rope_line != str_line {
+                if rope_line != *expected_line {
                     println!(
                         "Failed on line #{} in byte range: {range:?}",
                         idx + 1
                     );
-                    assert_eq!(rope_line, str_line);
+                    assert_eq!(rope_line, *expected_line);
                 }
             }
 
-            for ((idx, rope_line), str_line) in rope_slice
+            for ((idx, rope_line), expected_line) in rope_slice
                 .raw_lines()
                 .enumerate()
                 .rev()
-                .zip(str_slice.lines().rev())
+                .zip(expected.iter().rev())
             {
                 rope_line.assert_invariants();
 
-                let is_last = idx == rope_slice.line_len() - 1;
-
-                // TODO: use `RopeSlice::ends_with()` if/when that's
-                // implemented.
-                let str_line = if !is_last || str_slice.ends_with('\n') {
-                    let mut l = str_line.to_owned();
-                    l.push('\n');
-                    std::borrow::Cow::Owned(l)
-                } else {
-                    std::borrow::Cow::Borrowed(str_line)
-                };
-
-                if rope_line != str_line {
+                if rope_line != *expected_line {
                     println!(
                         "Failed on line #{} in byte range: {range:?}",
                         idx + 1
                     );
-                    assert_eq!(rope_line, str_line);
+                    assert_eq!(rope_line, *expected_line);
                 }
             }
         }

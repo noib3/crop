@@ -10,7 +10,6 @@ pub struct RopeBuilder {
     tree_builder: TreeBuilder<{ Rope::arity() }, RopeChunk>,
     buffer: RopeChunk,
     buffer_len_left: usize,
-    rope_has_trailing_newline: bool,
 }
 
 /// Pushes as mush of the slice as possible onto the left chunk of the gap
@@ -66,8 +65,6 @@ impl RopeBuilder {
             text = rest;
         }
 
-        self.rope_has_trailing_newline = self.buffer.has_trailing_newline();
-
         self
     }
 
@@ -103,16 +100,10 @@ impl RopeBuilder {
         if self.buffer_len_left > 0 {
             self.buffer.left_summary = self.buffer_left_chunk().summarize();
 
-            self.rope_has_trailing_newline =
-                self.buffer.has_trailing_newline();
-
             self.tree_builder.append(self.buffer);
         }
 
-        Rope {
-            tree: self.tree_builder.build(),
-            has_trailing_newline: self.rope_has_trailing_newline,
-        }
+        Rope { tree: self.tree_builder.build() }
     }
 
     /// Creates a new `RopeBuilder`.

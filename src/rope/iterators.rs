@@ -412,6 +412,36 @@ impl DoubleEndedIterator for Chars<'_> {
 
 impl core::iter::FusedIterator for Chars<'_> {}
 
+/// Returns the empty line at the end of `rope`, if its text ends with a line
+/// break or is empty.
+#[inline]
+fn trailing_line(rope: &Rope) -> Option<RopeSlice<'_>> {
+    let has_trailing_line = rope.is_empty()
+        || rope
+            .chunks()
+            .next_back()
+            .is_some_and(|chunk| chunk.ends_with('\n'));
+
+    has_trailing_line.then(|| RopeSlice {
+        tree_slice: rope.tree.slice_from(ByteMetric(rope.byte_len())),
+    })
+}
+
+/// Returns the empty line at the end of `slice`, if its text ends with a line
+/// break or is empty.
+#[inline]
+fn trailing_line_of_slice<'a>(slice: &RopeSlice<'a>) -> Option<RopeSlice<'a>> {
+    let has_trailing_line = slice.is_empty()
+        || slice
+            .chunks()
+            .next_back()
+            .is_some_and(|chunk| chunk.ends_with('\n'));
+
+    has_trailing_line.then(|| RopeSlice {
+        tree_slice: slice.tree_slice.slice_from(ByteMetric(slice.byte_len())),
+    })
+}
+
 /// An iterator over the lines of `Rope`s and `RopeSlice`s, including the line
 /// terminators (`\n` or `\r\n`).
 ///
@@ -425,8 +455,12 @@ pub struct RawLines<'a> {
     /// The number of lines that have been yielded so far.
     lines_yielded: usize,
 
-    /// The total number of bytes this iterator will yield.
+    /// The total number of lines this iterator will yield.
     lines_total: usize,
+
+    /// The empty line at the end of the text, if the text ends with a line
+    /// break or is empty.
+    trailing_line: Option<RopeSlice<'a>>,
 }
 
 impl<'a> From<&'a Rope> for RawLines<'a> {
@@ -436,6 +470,7 @@ impl<'a> From<&'a Rope> for RawLines<'a> {
             units: rope.tree.units::<RawLineMetric>(),
             lines_yielded: 0,
             lines_total: rope.line_len(),
+            trailing_line: trailing_line(rope),
         }
     }
 }
@@ -447,6 +482,7 @@ impl<'a> From<&RopeSlice<'a>> for RawLines<'a> {
             units: slice.tree_slice.units::<RawLineMetric>(),
             lines_yielded: 0,
             lines_total: slice.line_len(),
+            trailing_line: trailing_line_of_slice(slice),
         }
     }
 }
@@ -456,9 +492,14 @@ impl<'a> Iterator for RawLines<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let (tree_slice, _) = self.units.next()?;
-        self.lines_yielded += 1;
-        Some(RopeSlice::from(tree_slice))
+        let line = match self.units.next() {
+            Some((tree_slice, _)) => Some(RopeSlice::from(tree_slice)),
+            None => self.trailing_line.take(),
+        };
+
+        self.lines_yielded += line.is_some() as usize;
+
+        line
     }
 
     #[inline]
@@ -471,9 +512,17 @@ impl<'a> Iterator for RawLines<'a> {
 impl DoubleEndedIterator for RawLines<'_> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
-        let (tree_slice, _) = self.units.next_back()?;
-        self.lines_yielded += 1;
-        Some(RopeSlice::from(tree_slice))
+        let line = match self.trailing_line.take() {
+            Some(line) => Some(line),
+            None => self
+                .units
+                .next_back()
+                .map(|(tree_slice, _)| RopeSlice::from(tree_slice)),
+        };
+
+        self.lines_yielded += line.is_some() as usize;
+
+        line
     }
 }
 
@@ -498,8 +547,12 @@ pub struct Lines<'a> {
     /// The number of lines that have been yielded so far.
     lines_yielded: usize,
 
-    /// The total number of bytes this iterator will yield.
+    /// The total number of lines this iterator will yield.
     lines_total: usize,
+
+    /// The empty line at the end of the text, if the text ends with a line
+    /// break or is empty.
+    trailing_line: Option<RopeSlice<'a>>,
 }
 
 impl<'a> From<&'a Rope> for Lines<'a> {
@@ -509,6 +562,7 @@ impl<'a> From<&'a Rope> for Lines<'a> {
             units: rope.tree.units::<LineMetric>(),
             lines_yielded: 0,
             lines_total: rope.line_len(),
+            trailing_line: trailing_line(rope),
         }
     }
 }
@@ -520,6 +574,7 @@ impl<'a> From<&RopeSlice<'a>> for Lines<'a> {
             units: slice.tree_slice.units::<LineMetric>(),
             lines_yielded: 0,
             lines_total: slice.line_len(),
+            trailing_line: trailing_line_of_slice(slice),
         }
     }
 }
@@ -529,22 +584,28 @@ impl<'a> Iterator for Lines<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let (tree_slice, ByteMetric(advance)) = self.units.next()?;
-        self.lines_yielded += 1;
+        let line = match self.units.next() {
+            Some((tree_slice, ByteMetric(advance))) => {
+                let mut slice = RopeSlice { tree_slice };
 
-        let mut slice = RopeSlice { tree_slice, has_trailing_newline: false };
+                // This handles CRLF pairs that have been split across chunks.
+                // For example, if we have "aaa\r" and "\nbbb" we should yield
+                // "aaa", but the tree slice currently contains "aaa\r", so we
+                // need to remove the trailing "\r".
+                if slice.tree_slice.end_slice().last_chunk().ends_with('\r')
+                    && advance - slice.byte_len() == 1
+                {
+                    slice.truncate_last_char();
+                }
 
-        // This handles CRLF pairs that have been split across chunks. For
-        // example, if we have "aaa\r" and "\nbbb" we should yield "aaa", but
-        // the tree slice currently contains "aaa\r", so we need to remove
-        // the trailing "\r".
-        if slice.tree_slice.end_slice().last_chunk().ends_with('\r')
-            && advance - slice.byte_len() == 1
-        {
-            slice.truncate_last_char();
-        }
+                Some(slice)
+            },
+            None => self.trailing_line.take(),
+        };
 
-        Some(slice)
+        self.lines_yielded += line.is_some() as usize;
+
+        line
     }
 
     #[inline]
@@ -557,19 +618,28 @@ impl<'a> Iterator for Lines<'a> {
 impl DoubleEndedIterator for Lines<'_> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
-        let (tree_slice, ByteMetric(advance)) = self.units.next_back()?;
-        self.lines_yielded += 1;
+        let line = match self.trailing_line.take() {
+            Some(line) => Some(line),
+            None => {
+                let (tree_slice, ByteMetric(advance)) =
+                    self.units.next_back()?;
 
-        let mut slice = RopeSlice { tree_slice, has_trailing_newline: false };
+                let mut slice = RopeSlice { tree_slice };
 
-        // Same as above.
-        if slice.tree_slice.end_slice().last_chunk().ends_with('\r')
-            && advance - slice.byte_len() == 1
-        {
-            slice.truncate_last_char();
-        }
+                // Same as above.
+                if slice.tree_slice.end_slice().last_chunk().ends_with('\r')
+                    && advance - slice.byte_len() == 1
+                {
+                    slice.truncate_last_char();
+                }
 
-        Some(slice)
+                Some(slice)
+            },
+        };
+
+        self.lines_yielded += line.is_some() as usize;
+
+        line
     }
 }
 
