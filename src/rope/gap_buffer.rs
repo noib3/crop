@@ -487,12 +487,6 @@ impl GapBuffer {
         unreachable!("This can only be reached if the total length is zero");
     }
 
-    /// Returns `true` if the buffer ends with a newline ('\n') character.
-    #[inline]
-    pub(super) fn has_trailing_newline(&self) -> bool {
-        self.last_chunk().ends_with('\n')
-    }
-
     /// Inserts the string at the given byte offset, moving the gap to the new
     /// insertion point if necessary.
     ///
@@ -538,16 +532,6 @@ impl GapBuffer {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    /// The right chunk if it's not empty, or the left one otherwise.
-    #[inline]
-    pub(super) fn last_chunk(&self) -> &str {
-        if self.len_right() == 0 {
-            self.left_chunk()
-        } else {
-            self.right_chunk()
-        }
     }
 
     /// Returns the left chunk of this buffer as a string slice.

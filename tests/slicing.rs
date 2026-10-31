@@ -110,7 +110,7 @@ fn line_slice_1() {
     assert_eq!("Hello world", r.line_slice(..));
 
     let r = Rope::from("Hello world\n");
-    assert_eq!(1, r.line_len());
+    assert_eq!(2, r.line_len());
     assert_eq!("Hello world\n", r.line_slice(..));
 
     let r = Rope::from("Hello world\nthis is\na test");

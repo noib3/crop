@@ -13,7 +13,6 @@ use crate::tree::{LeafSlice, TreeSlice};
 #[derive(Copy, Clone)]
 pub struct RopeSlice<'a> {
     pub(super) tree_slice: TreeSlice<'a, { Rope::arity() }, RopeChunk>,
-    pub(super) has_trailing_newline: bool,
 }
 
 impl<'a> RopeSlice<'a> {
@@ -26,8 +25,6 @@ impl<'a> RopeSlice<'a> {
 
         let last = self.tree_slice.end_slice();
         last.assert_invariants();
-
-        assert_eq!(self.has_trailing_newline, last.has_trailing_newline())
     }
 
     /// Returns the byte at `byte_index`.
@@ -376,7 +373,7 @@ impl<'a> RopeSlice<'a> {
     /// # Panics
     ///
     /// Panics if the line index is out of bounds (i.e. greater than or equal
-    /// to [`line_len()`](Self::byte_len())).
+    /// to [`line_len()`](Self::line_len())).
     ///
     /// # Examples
     ///
@@ -388,6 +385,17 @@ impl<'a> RopeSlice<'a> {
     ///
     /// assert_eq!(s.line(0), "foo");
     /// assert_eq!(s.line(1), "bar");
+    ///
+    /// // A trailing line break counts as a separate empty line.
+    /// let s = r.line_slice(1..);
+    ///
+    /// assert_eq!(s.line(0), "bar");
+    /// assert_eq!(s.line(1), "baz");
+    ///
+    /// // An empty `RopeSlice` has a single empty line.
+    /// let s = r.byte_slice(..0);
+    ///
+    /// assert_eq!(s.line(0), "");
     /// ```
     #[track_caller]
     #[inline]
@@ -401,7 +409,6 @@ impl<'a> RopeSlice<'a> {
                 tree_slice: self
                     .tree_slice
                     .slice_from(RawLineMetric(line_index)),
-                has_trailing_newline: false,
             };
         }
 
@@ -409,7 +416,7 @@ impl<'a> RopeSlice<'a> {
             .tree_slice
             .slice(RawLineMetric(line_index)..RawLineMetric(line_index + 1));
 
-        let mut line = Self { tree_slice, has_trailing_newline: false };
+        let mut line = Self { tree_slice };
 
         if line.tree_slice.summary().line_breaks() == 1 {
             line.truncate_trailing_line_break();
@@ -420,8 +427,7 @@ impl<'a> RopeSlice<'a> {
 
     /// Returns the number of lines in the `RopeSlice`.
     ///
-    /// The final line break is optional and doesn't count as a separate empty
-    /// line.
+    /// The final line break counts as a separate empty line.
     ///
     /// # Examples
     ///
@@ -431,25 +437,23 @@ impl<'a> RopeSlice<'a> {
     /// let r = Rope::from("a\nb\r\n");
     ///
     /// let s = r.byte_slice(..);
-    /// assert_eq!(s.line_len(), 2);
+    /// assert_eq!(s.line_len(), 3);
     ///
     /// let s = r.byte_slice(..3);
     /// assert_eq!(s.line_len(), 2);
     ///
     /// let s = r.byte_slice(..2);
-    /// assert_eq!(s.line_len(), 1);
+    /// assert_eq!(s.line_len(), 2);
     ///
     /// let s = r.byte_slice(..1);
     /// assert_eq!(s.line_len(), 1);
     ///
     /// let s = r.byte_slice(..0);
-    /// assert_eq!(s.line_len(), 0);
+    /// assert_eq!(s.line_len(), 1);
     /// ```
     #[inline]
     pub fn line_len(&self) -> usize {
         self.tree_slice.summary().line_breaks() + 1
-            - (self.has_trailing_newline as usize)
-            - (self.is_empty() as usize)
     }
 
     /// Returns the line offset of the given byte.
@@ -532,8 +536,7 @@ impl<'a> RopeSlice<'a> {
             } else {
                 self.tree_slice.slice_from(RawLineMetric(start))
             };
-            debug_assert!(!tree_slice.end_slice().has_trailing_newline());
-            return Self { tree_slice, has_trailing_newline: false };
+            return Self { tree_slice };
         }
 
         self.tree_slice.slice(RawLineMetric(start)..RawLineMetric(end)).into()
@@ -542,8 +545,7 @@ impl<'a> RopeSlice<'a> {
     /// Returns an iterator over the lines of this `RopeSlice`, not including
     /// the line terminators.
     ///
-    /// The final line break is optional and doesn't cause the iterator to
-    /// return a final empty line.
+    /// The final line break counts as a separate empty line.
     ///
     /// If you want to include the line breaks consider using the
     /// [`raw_lines()`](Self::raw_lines()) method instead.
@@ -560,6 +562,7 @@ impl<'a> RopeSlice<'a> {
     ///
     /// assert_eq!("bar", lines.next().unwrap());
     /// assert_eq!("baz", lines.next().unwrap());
+    /// assert_eq!("", lines.next().unwrap());
     /// assert_eq!(None, lines.next());
     /// ```
     #[inline]
@@ -570,8 +573,7 @@ impl<'a> RopeSlice<'a> {
     /// Returns an iterator over the lines of this `RopeSlice`, including the
     /// line terminators.
     ///
-    /// The final line break is optional and doesn't cause the iterator to
-    /// return a final empty line.
+    /// The final line break counts as a separate empty line.
     ///
     /// If you don't  want to include the line breaks consider using the
     /// [`raw_lines()`](Self::raw_lines()) method instead.
@@ -598,6 +600,7 @@ impl<'a> RopeSlice<'a> {
     /// assert_eq!("foo\n", raw_lines.next().unwrap());
     /// assert_eq!("bar\r\n", raw_lines.next().unwrap());
     /// assert_eq!("baz\n", raw_lines.next().unwrap());
+    /// assert_eq!("", raw_lines.next().unwrap());
     /// assert_eq!(None, raw_lines.next());
     /// ```
     #[inline]
@@ -756,13 +759,7 @@ impl<'a> RopeSlice<'a> {
 impl<'a> From<TreeSlice<'a, { Rope::arity() }, RopeChunk>> for RopeSlice<'a> {
     #[inline]
     fn from(tree_slice: TreeSlice<'a, { Rope::arity() }, RopeChunk>) -> Self {
-        Self {
-            has_trailing_newline: tree_slice
-                .end_slice()
-                .has_trailing_newline(),
-
-            tree_slice,
-        }
+        Self { tree_slice }
     }
 }
 

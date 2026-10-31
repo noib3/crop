@@ -99,3 +99,39 @@ fn rope_line_3() {
     let l = r.line(2);
     assert_eq!("", l);
 }
+
+/// Regression test for <https://github.com/noib3/crop/issues/20>.
+#[test]
+fn rope_line_empty() {
+    let r = Rope::new();
+
+    assert_eq!(r.line_len(), 1);
+    assert_eq!(r.line(0), "");
+    assert_eq!(r.line_slice(0..1), "");
+    assert_eq!(r.byte_of_line(0), 0);
+    assert_eq!(r.byte_of_line(1), 0);
+
+    let s = r.byte_slice(..);
+    assert_eq!(s.line_len(), 1);
+    assert_eq!(s.line(0), "");
+    assert_eq!(s.line_slice(0..1), "");
+}
+
+/// Regression test for <https://github.com/noib3/crop/issues/20>.
+#[test]
+fn rope_line_trailing_newline() {
+    let r = Rope::from("foo\n");
+
+    assert_eq!(r.line_len(), 2);
+    assert_eq!(r.line(0), "foo");
+    assert_eq!(r.line(1), "");
+    assert_eq!(r.line_slice(1..2), "");
+    assert_eq!(r.line_slice(..), "foo\n");
+
+    let s = r.byte_slice(..);
+    assert_eq!(s.line_len(), 2);
+    assert_eq!(s.line(0), "foo");
+    assert_eq!(s.line(1), "");
+    assert_eq!(s.line_slice(1..2), "");
+    assert_eq!(s.line_slice(..), "foo\n");
+}
